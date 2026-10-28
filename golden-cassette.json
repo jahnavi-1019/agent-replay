@@ -1,0 +1,113 @@
+{
+  "version": "1.0.0",
+  "sessionId": "session_golden_refund_01",
+  "taskPrompt": "Customer requests a refund for damaged order ORD-7729.",
+  "agentName": "CustomerSupportAgent",
+  "createdAt": "2026-10-13T18:00:00.000Z",
+  "sanitized": true,
+  "totalSteps": 3,
+  "trajectoryHash": "5a415b39e6a9876543210fedcba9876543210fedcba9876543210fedcba98765",
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Look up an order by ID",
+      "parameters": {
+        "orderId": "string"
+      }
+    },
+    {
+      "name": "process_refund",
+      "description": "Issue refund to original payment method",
+      "parameters": {
+        "orderId": "string",
+        "amount": "number"
+      }
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 1,
+      "timestamp": "2026-10-13T18:00:01.000Z",
+      "action": "tool_execution",
+      "inputMessage": {
+        "role": "user",
+        "content": "Customer requests a refund for damaged order ORD-7729."
+      },
+      "outputMessage": {
+        "role": "assistant",
+        "content": "Checking order ORD-7729 in the system."
+      },
+      "toolCalls": [
+        {
+          "id": "tc_1",
+          "name": "lookup_order",
+          "arguments": {
+            "orderId": "ORD-7729"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "toolCallId": "tc_1",
+          "name": "lookup_order",
+          "output": {
+            "orderId": "ORD-7729",
+            "amount": 75.5,
+            "status": "DELIVERED",
+            "customerEmail": "[REDACTED_EMAIL]"
+          }
+        }
+      ],
+      "stateHash": "9b12a34f5e6d7c8b9a0f1e2d3c4b5a6f7e8d9c0b1a2f3e4d5c6b7a8f9e0d1c2b"
+    },
+    {
+      "stepIndex": 2,
+      "timestamp": "2026-10-13T18:00:02.000Z",
+      "action": "tool_execution",
+      "inputMessage": {
+        "role": "tool",
+        "content": "{\"orderId\":\"ORD-7729\",\"amount\":75.5}"
+      },
+      "outputMessage": {
+        "role": "assistant",
+        "content": "Order found. Issuing $75.50 refund."
+      },
+      "toolCalls": [
+        {
+          "id": "tc_2",
+          "name": "process_refund",
+          "arguments": {
+            "orderId": "ORD-7729",
+            "amount": 75.5
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "toolCallId": "tc_2",
+          "name": "process_refund",
+          "output": {
+            "refundId": "ref_9921",
+            "success": true
+          }
+        }
+      ],
+      "stateHash": "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
+    },
+    {
+      "stepIndex": 3,
+      "timestamp": "2026-10-13T18:00:03.000Z",
+      "action": "final_answer",
+      "inputMessage": {
+        "role": "tool",
+        "content": "{\"refundId\":\"ref_9921\",\"success\":true}"
+      },
+      "outputMessage": {
+        "role": "assistant",
+        "content": "Your refund of $75.50 for order ORD-7729 has been processed successfully under transaction ID ref_9921."
+      },
+      "stateHash": "e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6"
+    }
+  ],
+  "finalOutput": "Your refund of $75.50 for order ORD-7729 has been processed successfully under transaction ID ref_9921."
+}

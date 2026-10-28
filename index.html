@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentReplay — Deterministic AI Agent Time-Travel Debugger</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #080d1a; color: #f1f5f9; }
+    code, pre { font-family: 'Fira Code', monospace; }
+    .glass-panel { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #080d1a; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col custom-scroll">
+
+  <!-- HEADER -->
+  <header class="border-b border-slate-800 bg-slate-950/80 sticky top-0 z-50 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-purple-500/20">
+          ⏪
+        </div>
+        <div>
+          <span class="font-bold text-lg text-white tracking-tight">AgentReplay<span class="text-purple-400">.Studio</span></span>
+          <span class="hidden sm:inline-block ml-2 text-xs px-2 py-0.5 rounded-full bg-purple-950 text-purple-400 border border-purple-800 font-mono">Cassette Time-Travel & Divergence Pinpointing</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 cursor-pointer bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300">
+          <input type="checkbox" id="piiRedactToggle" checked onchange="togglePIIRedaction()" class="rounded bg-slate-800 border-slate-700 text-purple-500 focus:ring-0">
+          <span>PII & Secrets Redaction</span>
+        </label>
+        <select id="scenarioSelect" onchange="loadScenario(this.value)" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-purple-500 font-medium">
+          <option value="deterministic">Scenario: 100% Deterministic Match</option>
+          <option value="tool_drift">Scenario: Tool Argument Drift (Step 3)</option>
+          <option value="hallucination">Scenario: Unprompted Tool Hallucination</option>
+        </select>
+        <button onclick="runReplayAndCompare()" class="px-4 py-1.5 rounded-lg bg-purple-500 hover:bg-purple-400 text-slate-950 text-xs font-bold shadow-lg shadow-purple-500/20 transition flex items-center gap-1.5">
+          <span>▶</span> Replay Trajectory
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN INTERFACE -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- METRICS STRIP -->
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div class="glass-panel p-3.5 rounded-xl border-slate-800">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">Replay Status</div>
+        <div id="stat-status" class="text-lg font-bold text-emerald-400 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Deterministic
+        </div>
+      </div>
+      <div class="glass-panel p-3.5 rounded-xl border-slate-800">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">Total Steps</div>
+        <div id="stat-steps" class="text-lg font-bold text-purple-400">4 Steps</div>
+      </div>
+      <div class="glass-panel p-3.5 rounded-xl border-slate-800">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">Divergence Point</div>
+        <div id="stat-divergence" class="text-lg font-bold text-slate-400">None (0.00%)</div>
+      </div>
+      <div class="glass-panel p-3.5 rounded-xl border-slate-800">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">Sanitized Tokens</div>
+        <div id="stat-sanitized" class="text-lg font-bold text-amber-400">4 Redacted</div>
+      </div>
+      <div class="glass-panel p-3.5 rounded-xl border-slate-800">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">Execution Delta</div>
+        <div id="stat-latency" class="text-lg font-bold text-cyan-400">~12ms (Cached)</div>
+      </div>
+    </div>
+
+    <!-- SCRUBBER TIMELINE -->
+    <div class="glass-panel rounded-xl p-4 border-slate-800">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center gap-2">
+          <span>⏱</span> Interactive Step Scrubber
+        </div>
+        <span id="currentStepLabel" class="text-xs text-slate-400 font-mono">Viewing Step 1 of 4</span>
+      </div>
+      <div class="relative flex items-center">
+        <input type="range" id="stepScrubber" min="1" max="4" value="1" oninput="scrubToStep(parseInt(this.value))" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500">
+      </div>
+      <div class="flex justify-between mt-2 text-[11px] font-mono text-slate-500" id="scrubberTicks">
+        <span>Step 1: User Query</span>
+        <span>Step 2: Database Query</span>
+        <span>Step 3: Schema Transform</span>
+        <span>Step 4: Output Synthesis</span>
+      </div>
+    </div>
+
+    <!-- DIVERGENCE COMPARATOR (SIDE-BY-SIDE TRAJECTORIES) -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- BASELINE CASSETTE -->
+      <div class="glass-panel rounded-xl p-4 border-slate-800 flex flex-col">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+            <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Golden Cassette (Recording #89a1c)</span>
+          </div>
+          <span class="text-[11px] text-slate-500 font-mono" id="baselineHash">SHA256: 7f20...bc10</span>
+        </div>
+        <div id="baselineStepContent" class="space-y-3 flex-1">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- REPLAYED EXECUTION -->
+      <div class="glass-panel rounded-xl p-4 border-slate-800 flex flex-col">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <div class="flex items-center gap-2">
+            <span id="replayIndicator" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="text-xs font-bold text-purple-400 uppercase tracking-wider">Replayed Run (Live Engine)</span>
+          </div>
+          <span class="text-[11px] text-slate-500 font-mono" id="replayedHash">SHA256: 7f20...bc10</span>
+        </div>
+        <div id="replayedStepContent" class="space-y-3 flex-1">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- DIVERGENCE ROOT CAUSE EXPLANATION -->
+    <div id="divergenceCard" class="hidden glass-panel rounded-xl p-5 border-red-900/50 bg-red-950/20">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">⚠️</span>
+        <div class="space-y-1">
+          <div class="text-sm font-bold text-red-400" id="divergenceTitle">Trajectory Divergence Detected at Step 3</div>
+          <div class="text-xs text-slate-300 leading-relaxed" id="divergenceDesc">
+            Tool call argument drift detected. Expected parameters <code class="text-amber-300 bg-slate-900 px-1 py-0.5 rounded font-mono">{"limit": 50, "filter": "active"}</code> but received <code class="text-red-300 bg-slate-900 px-1 py-0.5 rounded font-mono">{"limit": 10, "filter": "all"}</code>.
+          </div>
+          <div class="pt-2 text-[11px] font-mono text-slate-400">
+            Remediation: Pin LLM temperature to 0.0 or update prompt schema assertions.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- JAVASCRIPT ENGINE -->
+  <script>
+    const SCENARIOS = {
+      deterministic: {
+        status: "Deterministic",
+        statusColor: "emerald",
+        divergenceStep: null,
+        steps: [
+          {
+            index: 1,
+            title: "Task Ingestion & Prompt Framing",
+            tool: "agent_init",
+            baseline: {
+              prompt: "Export telemetry summary for customer user_77192",
+              apiKey: "sk-proj-9993848201928475920194857201948",
+              authHeader: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+              status: "READY"
+            },
+            replayed: {
+              prompt: "Export telemetry summary for customer user_77192",
+              apiKey: "sk-proj-9993848201928475920194857201948",
+              authHeader: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+              status: "READY"
+            }
+          },
+          {
+            index: 2,
+            title: "Execute Postgres Metric Query",
+            tool: "sql_execute",
+            baseline: {
+              query: "SELECT latency_ms, status_code FROM request_logs WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 100",
+              params: ["user_77192"],
+              recordsReturned: 94
+            },
+            replayed: {
+              query: "SELECT latency_ms, status_code FROM request_logs WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 100",
+              params: ["user_77192"],
+              recordsReturned: 94
+            }
+          },
+          {
+            index: 3,
+            title: "Aggregate Latency Percentiles",
+            tool: "calculate_stats",
+            baseline: {
+              p50: 42.1,
+              p95: 189.4,
+              p99: 412.0,
+              anomaliesCount: 0
+            },
+            replayed: {
+              p50: 42.1,
+              p95: 189.4,
+              p99: 412.0,
+              anomaliesCount: 0
+            }
+          },
+          {
+            index: 4,
+            title: "Render Markdown Summary & Return",
+            tool: "respond_user",
+            baseline: {
+              output: "Successfully processed 94 telemetry events. P95 latency is healthy at 189.4ms."
+            },
+            replayed: {
+              output: "Successfully processed 94 telemetry events. P95 latency is healthy at 189.4ms."
+            }
+          }
+        ]
+      },
+      tool_drift: {
+        status: "Diverged",
+        statusColor: "red",
+        divergenceStep: 3,
+        steps: [
+          {
+            index: 1,
+            title: "Task Ingestion & Prompt Framing",
+            tool: "agent_init",
+            baseline: {
+              prompt: "Export telemetry summary for customer user_77192",
+              apiKey: "sk-proj-9993848201928475920194857201948",
+              status: "READY"
+            },
+            replayed: {
+              prompt: "Export telemetry summary for customer user_77192",
+              apiKey: "sk-proj-9993848201928475920194857201948",
+              status: "READY"
+            }
+          },
+          {
+            index: 2,
+            title: "Execute Postgres Metric Query",
+            tool: "sql_execute",
+            baseline: {
+              query: "SELECT latency_ms, status_code FROM request_logs WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 100",
+              params: ["user_77192"]
+            },
+            replayed: {
+              query: "SELECT latency_ms, status_code FROM request_logs WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 100",
+              params: ["user_77192"]
+            }
+          },
+          {
+            index: 3,
+            title: "Aggregate Latency Percentiles",
+            tool: "calculate_stats",
+            baseline: {
+              method: "exact_sort",
+              percentiles: [50, 95, 99],
+              window: "24h"
+            },
+            replayed: {
+              method: "approx_digest",
+              percentiles: [50, 90, 99],
+              window: "1h"
+            }
+          },
+          {
+            index: 4,
+            title: "Render Markdown Summary & Return",
+            tool: "respond_user",
+            baseline: {
+              output: "Successfully processed 94 telemetry events. P95 latency is 189.4ms."
+            },
+            replayed: {
+              output: "Warning: Telemetry window evaluated for 1h rather than 24h baseline."
+            }
+          }
+        ]
+      },
+      hallucination: {
+        status: "Diverged",
+        statusColor: "red",
+        divergenceStep: 2,
+        steps: [
+          {
+            index: 1,
+            title: "Task Ingestion & Prompt Framing",
+            tool: "agent_init",
+            baseline: {
+              prompt: "Export telemetry summary for customer user_77192"
+            },
+            replayed: {
+              prompt: "Export telemetry summary for customer user_77192"
+            }
+          },
+          {
+            index: 2,
+            title: "Execute Tool Selection",
+            tool: "sql_execute",
+            baseline: {
+              toolSelected: "sql_execute",
+              query: "SELECT * FROM request_logs"
+            },
+            replayed: {
+              toolSelected: "web_search",
+              query: "How to fix request_logs table"
+            }
+          },
+          {
+            index: 3,
+            title: "Post-Processing",
+            tool: "unresolved",
+            baseline: { status: "PROCESSED" },
+            replayed: { status: "FAILED_UNEXPECTED_WEB_CALL" }
+          },
+          {
+            index: 4,
+            title: "Return",
+            tool: "respond_user",
+            baseline: { output: "Report done" },
+            replayed: { output: "Agent aborted due to tool contract violation" }
+          }
+        ]
+      }
+    };
+
+    let currentScenarioKey = 'deterministic';
+    let currentStep = 1;
+    let redactPII = true;
+
+    function sanitizeData(obj) {
+      if (!redactPII) return obj;
+      const str = JSON.stringify(obj);
+      const sanitized = str
+        .replace(/sk-[a-zA-Z0-9_\-]{20,}/g, "[REDACTED_API_KEY]")
+        .replace(/Bearer [a-zA-Z0-9_\-\.]{15,}/g, "Bearer [REDACTED_TOKEN]")
+        .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[REDACTED_EMAIL]");
+      return JSON.parse(sanitized);
+    }
+
+    function togglePIIRedaction() {
+      redactPII = document.getElementById('piiRedactToggle').checked;
+      renderStep();
+    }
+
+    function loadScenario(key) {
+      currentScenarioKey = key;
+      currentStep = 1;
+      document.getElementById('stepScrubber').value = 1;
+      updateUI();
+    }
+
+    function scrubToStep(step) {
+      currentStep = step;
+      document.getElementById('currentStepLabel').innerText = `Viewing Step ${step} of 4`;
+      renderStep();
+    }
+
+    function runReplayAndCompare() {
+      const scenario = SCENARIOS[currentScenarioKey];
+      if (scenario.divergenceStep) {
+        scrubToStep(scenario.divergenceStep);
+        document.getElementById('stepScrubber').value = scenario.divergenceStep;
+      } else {
+        scrubToStep(1);
+        document.getElementById('stepScrubber').value = 1;
+      }
+    }
+
+    function updateUI() {
+      const scenario = SCENARIOS[currentScenarioKey];
+      const isDet = scenario.status === "Deterministic";
+      
+      const statStatus = document.getElementById('stat-status');
+      if (isDet) {
+        statStatus.className = "text-lg font-bold text-emerald-400 flex items-center gap-1.5";
+        statStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Deterministic`;
+        document.getElementById('stat-divergence').innerText = "None (0.00%)";
+        document.getElementById('stat-divergence').className = "text-lg font-bold text-slate-400";
+        document.getElementById('divergenceCard').classList.add('hidden');
+      } else {
+        statStatus.className = "text-lg font-bold text-red-400 flex items-center gap-1.5";
+        statStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span> Diverged`;
+        document.getElementById('stat-divergence').innerText = `Step ${scenario.divergenceStep} (100% Drift)`;
+        document.getElementById('stat-divergence').className = "text-lg font-bold text-red-400";
+        document.getElementById('divergenceCard').classList.remove('hidden');
+        document.getElementById('divergenceTitle').innerText = `Trajectory Divergence Detected at Step ${scenario.divergenceStep}`;
+      }
+
+      renderStep();
+    }
+
+    function renderStep() {
+      const scenario = SCENARIOS[currentScenarioKey];
+      const stepData = scenario.steps[currentStep - 1];
+
+      const baselineData = sanitizeData(stepData.baseline);
+      const replayedData = sanitizeData(stepData.replayed);
+
+      const hasDrift = JSON.stringify(stepData.baseline) !== JSON.stringify(stepData.replayed);
+
+      // Baseline Content
+      document.getElementById('baselineStepContent').innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="text-xs font-semibold text-slate-200">Step ${stepData.index}: ${stepData.title}</div>
+          <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400">${stepData.tool}</span>
+        </div>
+        <pre class="bg-slate-950 p-3 rounded-lg text-xs font-mono text-cyan-300 border border-slate-800 overflow-x-auto">${JSON.stringify(baselineData, null, 2)}</pre>
+      `;
+
+      // Replayed Content
+      document.getElementById('replayedStepContent').innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="text-xs font-semibold text-slate-200">Step ${stepData.index}: ${stepData.title}</div>
+          <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 ${hasDrift ? 'text-red-400 border-red-800' : 'text-purple-400'}">${stepData.tool}</span>
+        </div>
+        <pre class="bg-slate-950 p-3 rounded-lg text-xs font-mono ${hasDrift ? 'text-red-300 border-red-900/60' : 'text-purple-300 border-slate-800'} overflow-x-auto">${JSON.stringify(replayedData, null, 2)}</pre>
+      `;
+
+      const replayIndicator = document.getElementById('replayIndicator');
+      if (hasDrift) {
+        replayIndicator.className = "w-2 h-2 rounded-full bg-red-400";
+      } else {
+        replayIndicator.className = "w-2 h-2 rounded-full bg-emerald-400";
+      }
+    }
+
+    // Initialize
+    updateUI();
+  </script>
+</body>
+</html>

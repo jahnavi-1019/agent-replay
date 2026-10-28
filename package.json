@@ -1,0 +1,31 @@
+{
+  "name": "@portfolio/agent-replay",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Deterministic debugging, time-travel, and regression-testing framework for sanitized AI-agent runs",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "bin": {
+    "agent-replay": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/cli.js",
+    "test": "tsc && node --test dist/*.test.js",
+    "ui": "npx serve -l 3000 ."
+  },
+  "keywords": [
+    "ai-agents",
+    "regression-testing",
+    "replay",
+    "vcr",
+    "time-travel-debugging",
+    "pii-redaction"
+  ],
+  "author": "Antigravity Engineering",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.7.2"
+  }
+}
